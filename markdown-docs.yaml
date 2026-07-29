@@ -1,0 +1,92 @@
+# markdown-docs.yaml
+# Configuration for the markdown-docs server.
+#
+# All settings can be overridden at runtime via CLI arguments:
+#   pixi run dev --repo /path/to/repo --docs-dir docs/
+#
+# Safe to check into version control. Avoid storing secrets here.
+# Use SSH keys or git credential helpers for repo auth.
+
+# ── Server ────────────────────────────────────────────────────────────────────
+server:
+  host: "127.0.0.1"
+  port: 8000
+  # Set true only behind a reverse proxy that sets X-Forwarded-* headers
+  proxy_headers: false
+
+# ── Repository ────────────────────────────────────────────────────────────────
+repository:
+  # Path to the git repository root.
+  # Relative paths resolve from the directory containing this config file.
+  # Overridable via CLI: --repo <path>
+  path: ".test-repo"
+
+  # Sub-directory within the repo that contains markdown documents.
+  # "." means the repo root. Overridable via CLI: --docs-dir <path>
+  docs_dir: "."
+
+  # Branch prefix for doc-edit branches created by this tool.
+  # Must end with a separator character, e.g. "docs-" or "doc-edit/".
+  # Resulting branch names look like: docs-my-feature-name
+  # Overridable via CLI: --branch-prefix <prefix>
+  branch_prefix: "docs-"
+
+  # The trunk branch to diff against and merge back into.
+  default_branch: "main"
+
+  # How many recent branches to show in the branch bar UI.
+  max_recent_branches: 20
+
+# ── Editor ───────────────────────────────────────────────────────────────────
+editor:
+  # Autosave interval in seconds (0 = disabled).
+  autosave_interval: 30
+
+  # Default tab size in the raw markdown editor.
+  tab_size: 2
+
+  # Wrap long lines in the raw editor pane.
+  word_wrap: true
+
+# ── Pandoc ───────────────────────────────────────────────────────────────────
+pandoc:
+  # Extra pandoc arguments appended to every render call.
+  extra_args: []
+
+  # Markdown extensions to enable (pandoc +extension syntax).
+  # Defaults mirror GitLab-Flavored Markdown as closely as possible.
+  extensions:
+    - gfm_auto_identifiers
+    - pipe_tables
+    - task_lists
+    - strikeout
+    - superscript
+    - subscript
+    - definition_lists
+    - fenced_code_blocks
+    - fenced_code_attributes
+    - backtick_code_blocks
+    - raw_html
+    - emoji
+
+  # Syntax highlight theme for code blocks rendered by pandoc.
+  # Options: pygments, kate, monochrome, espresso, zenburn, haddock, tango
+  highlight_style: "kate"
+
+# ── Diff ─────────────────────────────────────────────────────────────────────
+diff:
+  # Rendered HTML diff granularity:
+  #   "block" – highlight changed blocks (paragraphs, headings, list items)
+  #   "word"  – highlight changed words within changed blocks
+  #   "both"  – pale block highlight + darker word highlight (recommended)
+  rendered_diff_mode: "both"
+
+  # Pale background for changed blocks (any CSS color value).
+  block_highlight_color: "rgba(255, 200, 0, 0.15)"
+
+  # Darker highlight for changed words within a block.
+  word_highlight_color: "rgba(255, 140, 0, 0.45)"
+
+  # Added / removed content colors.
+  added_color: "rgba(0, 200, 80, 0.25)"
+  removed_color: "rgba(220, 50, 50, 0.25)"

@@ -1,0 +1,45 @@
+[project]
+name = "markdown-docs"
+version = "0.1.0"
+description = "Git-native markdown documentation editor with visual diffing"
+channels = ["conda-forge"]
+platforms = ["linux-64", "osx-arm64", "osx-64", "win-64"]
+
+[dependencies]
+python = ">=3.11"
+pandoc = ">=3.1"
+git = ">=2.40"
+
+[pypi-dependencies]
+fastapi = ">=0.111"
+uvicorn = {version = ">=0.29", extras = ["standard"]}
+pygit2 = ">=1.14"
+pydantic = ">=2.7"
+pydantic-settings = ">=2.3"
+python-multipart = ">=0.0.9"
+aiofiles = ">=23.2"
+pyyaml = ">=6.0"
+diff-match-patch = ">=20230430"
+click = ">=8.1"
+httpx = ">=0.27"   # for testing
+pytest = ">=8.2"
+pytest-asyncio = ">=0.23"
+anyio = {version = ">=4.4", extras = ["trio"]}
+
+[tasks]
+# ── Development ──────────────────────────────────────────────────────────────
+dev = { cmd = "uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000", description = "Start development server" }
+dev-verbose = { cmd = "uvicorn backend.main:app --reload --host 0.0.0.0 --port 8000 --log-level debug", description = "Start dev server with debug logging" }
+
+# ── Testing ───────────────────────────────────────────────────────────────────
+test = { cmd = "pytest backend/tests/ -v", description = "Run test suite" }
+test-cov = { cmd = "pytest backend/tests/ -v --tb=short", description = "Run tests with short tracebacks" }
+
+# ── Test repo lifecycle ───────────────────────────────────────────────────────
+repo-create = { cmd = "python scripts/manage_test_repo.py create", description = "Create the local test git repo in .test-repo/" }
+repo-destroy = { cmd = "python scripts/manage_test_repo.py destroy", description = "Destroy the local test git repo" }
+repo-reset = { cmd = "python scripts/manage_test_repo.py reset", description = "Destroy and re-create the test repo (clean state)" }
+repo-seed = { cmd = "python scripts/manage_test_repo.py seed", description = "Seed test repo with sample markdown documents" }
+
+# ── Utilities ────────────────────────────────────────────────────────────────
+lint = { cmd = "python -m py_compile backend/**/*.py && echo 'Syntax OK'", description = "Check Python syntax" }

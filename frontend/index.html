@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>markdown-docs</title>
+  <link rel="stylesheet" href="/styles/base.css">
+
+  <!-- Web components loaded as ES modules — no build step needed -->
+  <script type="module" src="/components/md-document.js"></script>
+  <script type="module" src="/components/md-code-block.js"></script>
+  <script type="module" src="/components/md-mermaid.js"></script>
+  <script type="module" src="/components/md-diff-view.js"></script>
+  <script type="module" src="/components/md-branch-bar.js"></script>
+  <script type="module" src="/components/md-editor.js"></script>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- ── App bar ──────────────────────────────────────────────────────────── -->
+  <header id="app-bar" role="banner">
+    <span class="app-name">📄 markdown-docs</span>
+    <span id="repo-label" style="font-size:0.8em;opacity:0.7"></span>
+    <div class="spacer"></div>
+    <button id="toggle-diff-btn" class="toolbar-btn" style="
+      padding: 2px 10px;
+      border: 1px solid rgba(255,255,255,0.3);
+      border-radius: 4px;
+      background: transparent;
+      color: white;
+      cursor: pointer;
+      font-size: 0.85em;
+    " hidden>Show diff</button>
+  </header>
+
+  <!-- ── Branch bar ────────────────────────────────────────────────────────── -->
+  <div id="branch-bar-wrapper">
+    <md-branch-bar id="branch-bar"></md-branch-bar>
+  </div>
+
+  <!-- ── Main layout ───────────────────────────────────────────────────────── -->
+  <div id="main-area">
+
+    <!-- Sidebar: document list -->
+    <nav id="sidebar" aria-label="Documents">
+      <div id="sidebar-header">
+        <span>Documents</span>
+        <button id="new-doc-btn" style="
+          background: none; border: none; cursor: pointer;
+          color: var(--md-muted); font-size: 1.1em;" title="New document"
+          aria-label="New document">+</button>
+      </div>
+      <ul id="doc-list" role="list"></ul>
+    </nav>
+
+    <!-- Content: editor + optional diff panel -->
+    <div id="content">
+      <md-editor
+        id="editor"
+        path=""
+        branch=""
+        autosave="30"
+        layout="split"
+        style="flex:1;display:flex;flex-direction:column;"
+      ></md-editor>
+
+      <!-- Diff panel (fullscreen overlay, hidden until "Show diff" clicked) -->
+      <div id="diff-panel">
+        <div id="diff-panel-header">
+          <span>⎇ Diff:</span>
+          <span id="diff-panel-title" style="font-weight:normal;opacity:0.85;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;"></span>
+          <label style="display:flex;align-items:center;gap:4px;">
+            <input type="radio" name="diff-type" value="rendered" checked> Rendered
+          </label>
+          <label style="display:flex;align-items:center;gap:4px;">
+            <input type="radio" name="diff-type" value="source"> Source
+          </label>
+          <button class="close-btn" id="close-diff-btn" aria-label="Close diff (Esc)">✕ Close</button>
+        </div>
+        <md-diff-view id="diff-view" mode="side-by-side" style="flex:1;overflow:auto;min-height:0;"></md-diff-view>
+        <pre id="diff-container" hidden style="flex:1;overflow:auto;margin:0;padding:1em;font-size:0.8em;font-family:monospace;background:var(--md-code-bg,#f6f8fa);white-space:pre-wrap;word-break:break-all;min-height:0;"></pre>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script type="module">
+import { api, relativeTime, sanitizeBranchName, escapeHtml } from "/lib/utils.js";
+
+// ── State ──────────────────────────────────────────────────────────────────────
+const state = {
+  currentPath: null,
+  currentBranch: null,
+  defaultBranch: "main",
+  branchPrefix: "docs-",
+  config: null,
+};
+
+// ── DOM refs ───────────────────────────────────────────────────────────────────
+const branchBar   = document.getElementById("branch-bar");
+const editor      = document.getElementById("editor");
+const docList     = document.getElementById("doc-list");
+const diffView    = document.getElementById("diff-view");
+const diffPanel   = document.getElementById("diff-panel");
+const diffTitle   = document.getElementById("diff-panel-title");
+const toggleDiffBtn = document.getElementById("toggle-diff-btn");
+const closeDiffBtn  = document.getElementById("close-diff-btn");
+const newDocBtn   = document.getElementById("new-doc-btn");
+const repoLabel   = document.getElementById("repo-label");
+const diffContainer = document.getElementById("diff-container");
+
+// ── Bootstrap ──────────────────────────────────────────────────────────────────
+async function init() {
+  try {
+    state.config = await api.get("/api/config");
+    state.defaultBranch = state.config.default_branch;
+    state.branchPrefix  = state.config.branch_prefix;
+    repoLabel.textContent = state.config.repo_path;
+  } catch (e) {
+    showToast("Could not reach server: " + e.message, "error");
+  }
+
+  await loadBranches();
+  await loadDocList();
+
+  // Restore last-opened doc from URL hash / search
+  const params = new URLSearchParams(location.search);
+  const initPath   = params.get("path");
+  const initBranch = params.get("branch") || state.currentBranch;
+  if (initPath) await openDoc(initPath, initBranch);
+}
+
+// ── Branches ───────────────────────────────────────────────────────────────────
+async function loadBranches() {
+  try {
+    const data = await api.get("/api/branches");
+    state.currentBranch = data.current;
+    state.defaultBranch = data.default;
+    state.branchPrefix  = data.prefix;
+    branchBar.branches  = data.branches;
+    branchBar.current   = data.current;
+    branchBar.prefix    = data.prefix;
+    branchBar.default   = data.default;
+  } catch (e) {
+    showToast("Branch load error: " + e.message, "error");
+  }
+}
+
+branchBar.addEventListener("branch-switch", async (e) => {
+  const { branch } = e.detail;
+  try {
+    await api.post(`/api/branches/${encodeURIComponent(branch)}/switch`);
+    state.currentBranch = branch;
+    await loadBranches();
+    await loadDocList();
+    if (state.currentPath) await openDoc(state.currentPath, branch);
+  } catch (err) {
+    showToast("Switch failed: " + err.message, "error");
+  }
+});
+
+branchBar.addEventListener("branch-create", async (e) => {
+  const { name } = e.detail;
+  try {
+    const result = await api.post("/api/branches", { name, switch_to: true });
+    state.currentBranch = result.branch;
+    await loadBranches();
+    showToast(`Created branch ${result.branch}`, "success");
+  } catch (err) {
+    showToast("Create failed: " + err.message, "error");
+  }
+});
+
+branchBar.addEventListener("branch-merge", async (e) => {
+  const { source, target } = e.detail;
+  if (!confirm(`Squash-merge "${source}" → "${target}"?\n\nThis will apply all changes as a single commit.`)) return;
+  try {
+    const result = await api.post(`/api/branches/${encodeURIComponent(source)}/merge`, {
+      source_branch: source,
+      target_branch: target,
+      squash: true,
+    });
+    if (result.merged) {
+      showToast(`Merged into ${target} (${result.commit_sha?.slice(0, 8)})`, "success");
+      await loadBranches();
+    } else {
+      showToast("Merge failed: " + (result.conflicts?.join(", ") || "unknown"), "error");
+    }
+  } catch (err) {
+    showToast("Merge error: " + err.message, "error");
+  }
+});
+
+branchBar.addEventListener("branch-refresh", loadBranches);
+
+// ── Document list ──────────────────────────────────────────────────────────────
+async function loadDocList() {
+  try {
+    const data = await api.get("/api/documents", {
+      branch: state.currentBranch || undefined,
+    });
+    renderDocList(data.documents);
+  } catch (e) {
+    showToast("Doc list error: " + e.message, "error");
+  }
+}
+
+function renderDocList(paths) {
+  docList.innerHTML = "";
+  for (const path of paths) {
+    const li  = document.createElement("li");
+    const a   = document.createElement("a");
+    a.href    = `?path=${encodeURIComponent(path)}&branch=${encodeURIComponent(state.currentBranch || "")}`;
+    a.textContent = path;
+    a.dataset.path = path;
+    if (path === state.currentPath) a.classList.add("active");
+    a.addEventListener("click", (ev) => {
+      ev.preventDefault();
+      openDoc(path, state.currentBranch);
+    });
+    li.appendChild(a);
+    docList.appendChild(li);
+  }
+}
+
+// ── Open a document ────────────────────────────────────────────────────────────
+async function openDoc(path, branch) {
+  state.currentPath   = path;
+  state.currentBranch = branch || state.currentBranch;
+
+  // Highlight in sidebar
+  docList.querySelectorAll("a").forEach(a =>
+    a.classList.toggle("active", a.dataset.path === path)
+  );
+
+  // Update URL without navigation
+  const params = new URLSearchParams();
+  params.set("path",   path);
+  params.set("branch", state.currentBranch);
+  history.replaceState({}, "", "?" + params.toString());
+
+  try {
+    const doc = await api.get(`/api/documents/${encodeURIComponent(path)}`, {
+      branch: state.currentBranch,
+    });
+    editor.setAttribute("path",   path);
+    editor.setAttribute("branch", state.currentBranch);
+    editor.content = doc.content;
+
+    // Show diff button whenever a doc is open
+    toggleDiffBtn.hidden = false;
+    // If we switched away from a doc branch, close diff panel
+    const isDocBranch = state.currentBranch?.startsWith(state.branchPrefix);
+    if (!isDocBranch && diffPanel.classList.contains("visible")) {
+      closeDiff();
+    }
+  } catch (err) {
+    showToast("Open failed: " + err.message, "error");
+  }
+}
+
+// ── Editor events ──────────────────────────────────────────────────────────────
+editor.addEventListener("save-request", async (e) => {
+  const { content, path, branch } = e.detail;
+  if (!path || !branch) {
+    editor.markSaveError("no path or branch");
+    return;
+  }
+  try {
+    await api.put(`/api/documents/${encodeURIComponent(path)}`, {
+      path, content, branch,
+    });
+    editor.markSaved();
+    showToast("Saved", "success");
+  } catch (err) {
+    editor.markSaveError(err.message);
+    showToast("Save failed: " + err.message, "error");
+  }
+});
+
+editor.addEventListener("autosave", async (e) => {
+  const { content, path, branch } = e.detail;
+  if (!path || !branch) return;
+  try {
+    await api.put(`/api/documents/${encodeURIComponent(path)}`, {
+      path, content, branch,
+      commit_message: `docs: autosave ${path}`,
+    });
+    editor.markSaved();
+  } catch { /* silent autosave failure */ }
+});
+
+// ── Diff panel ─────────────────────────────────────────────────────────────────
+toggleDiffBtn.addEventListener("click", async () => {
+  diffPanel.classList.add("visible");
+  toggleDiffBtn.hidden = true;
+  await loadDiff();
+});
+
+closeDiffBtn.addEventListener("click", closeDiff);
+
+// Escape key closes diff panel
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && diffPanel.classList.contains("visible")) closeDiff();
+});
+
+function closeDiff() {
+  diffPanel.classList.remove("visible");
+  // Keep button visible as long as a doc is open
+  toggleDiffBtn.hidden = !state.currentPath;
+}
+
+document.querySelectorAll("input[name='diff-type']").forEach(radio => {
+  radio.addEventListener("change", loadDiff);
+});
+
+async function loadDiff() {
+  if (!state.currentPath || !state.currentBranch) return;
+  const diffType = document.querySelector("input[name='diff-type']:checked")?.value || "rendered";
+
+  diffTitle.textContent = `${state.currentPath}  (${state.defaultBranch} → ${state.currentBranch})`;
+  diffView.setAttribute("base-label", state.defaultBranch);
+  diffView.setAttribute("new-label",  state.currentBranch);
+
+  try {
+    const endpoint = diffType === "source" ? "/api/diff/source" : "/api/diff/rendered";
+    const data = await api.post(endpoint, {
+      path: state.currentPath,
+      base_branch:    state.defaultBranch,
+      compare_branch: state.currentBranch,
+    });
+
+    if (diffType === "source") {
+      diffView.hidden = true;
+      diffContainer.hidden = false;
+      const unified = data.hunks.map(h =>
+        `@@ -${h.old_start},${h.old_lines} +${h.new_start},${h.new_lines} @@\n${h.content}`
+      ).join("\n");
+      diffContainer.textContent = unified || "(no differences)";
+    } else {
+      diffContainer.hidden = true;
+      diffView.hidden = false;
+      diffView.diff = data;
+    }
+  } catch (err) {
+    showToast("Diff error: " + err.message, "error");
+  }
+}
+
+// ── New document ───────────────────────────────────────────────────────────────
+newDocBtn.addEventListener("click", async () => {
+  const name = prompt("New document name (e.g. my-doc.md):");
+  if (!name) return;
+  const path = name.endsWith(".md") ? name : name + ".md";
+
+  // Ensure we're on a doc branch
+  if (!state.currentBranch?.startsWith(state.branchPrefix)) {
+    const branchName = sanitizeBranchName(path.replace(/\.md$/, ""));
+    const confirmed = confirm(
+      `You need a doc branch to create a document.\nCreate branch "${state.branchPrefix}${branchName}" now?`
+    );
+    if (!confirmed) return;
+    try {
+      const result = await api.post("/api/branches", {
+        name: branchName, switch_to: true,
+      });
+      state.currentBranch = result.branch;
+      await loadBranches();
+    } catch (e) {
+      showToast("Branch create error: " + e.message, "error");
+      return;
+    }
+  }
+
+  // Create empty document
+  try {
+    await api.put(`/api/documents/${encodeURIComponent(path)}`, {
+      path,
+      content: `# ${path.replace(/\.md$/, "").replace(/-/g, " ")}\n\n`,
+      branch: state.currentBranch,
+      commit_message: `docs: create ${path}`,
+    });
+    await loadDocList();
+    await openDoc(path, state.currentBranch);
+  } catch (e) {
+    showToast("Create failed: " + e.message, "error");
+  }
+});
+
+// ── Toast ──────────────────────────────────────────────────────────────────────
+function showToast(message, type = "") {
+  const t = document.createElement("div");
+  t.className = `toast ${type}`;
+  t.textContent = message;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+// ── Start — wait for all custom elements to be registered first ────────────────
+// Component scripts are type="module" (deferred), so we wait for them before
+// calling init(). This guarantees that setters like branchBar.branches = ...
+// hit the real custom element instance, not a plain HTMLElement stub.
+Promise.all([
+  customElements.whenDefined("md-branch-bar"),
+  customElements.whenDefined("md-editor"),
+  customElements.whenDefined("md-diff-view"),
+]).then(init);
+</script>
+</body>
+</html>

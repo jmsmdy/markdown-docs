@@ -1,0 +1,239 @@
+/*
+ * frontend/styles/base.css
+ * Global reset and CSS custom properties for the markdown-docs UI.
+ * Everything else is scoped inside web component shadow DOMs.
+ */
+
+/* ── Reset ─────────────────────────────────────────────────────────────────── */
+*, *::before, *::after {
+  box-sizing: border-box;
+}
+
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+               "Helvetica Neue", Arial, sans-serif;
+  font-size: 16px;
+  line-height: 1.5;
+  color: var(--md-text, #24292f);
+  background: var(--md-bg, #ffffff);
+}
+
+/* ── Design tokens (light mode) ─────────────────────────────────────────────── */
+:root {
+  --md-text:           #24292f;
+  --md-bg:             #ffffff;
+  --md-code-bg:        #f6f8fa;
+  --md-border:         #d0d7de;
+  --md-muted:          #57606a;
+  --md-heading:        #1a1a2e;
+  --md-link:           #0969da;
+  --md-error:          #cf222e;
+  --md-bar-bg:         #f6f8fa;
+
+  /* Diff colors */
+  --md-diff-added:     rgba(0,   200,  80, 0.18);
+  --md-diff-removed:   rgba(220,  50,  50, 0.18);
+  --md-diff-block:     rgba(255, 200,   0, 0.15);
+  --md-diff-word:      rgba(255, 140,   0, 0.45);
+
+  /* Sidebar */
+  --sidebar-width:     260px;
+  --bar-height:        2.5em;
+}
+
+/* ── Dark mode ───────────────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --md-text:     #e6edf3;
+    --md-bg:       #0d1117;
+    --md-code-bg:  #161b22;
+    --md-border:   #30363d;
+    --md-muted:    #8b949e;
+    --md-heading:  #cdd9e5;
+    --md-link:     #58a6ff;
+    --md-bar-bg:   #161b22;
+  }
+}
+
+/* ── App shell layout ────────────────────────────────────────────────────────── */
+#app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+#app-bar {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  height: var(--bar-height);
+  padding: 0 0.75em;
+  background: var(--md-heading, #1a1a2e);
+  color: #ffffff;
+  font-size: 0.85em;
+  gap: 0.75em;
+  z-index: 10;
+}
+
+#app-bar .app-name {
+  font-weight: 700;
+  font-size: 1em;
+  letter-spacing: 0.02em;
+}
+
+#app-bar .spacer { flex: 1; }
+
+#branch-bar-wrapper {
+  flex-shrink: 0;
+}
+
+#main-area {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* ── Sidebar ─────────────────────────────────────────────────────────────────── */
+#sidebar {
+  width: var(--sidebar-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  border-right: 1px solid var(--md-border);
+  background: var(--md-code-bg);
+  overflow: hidden;
+}
+
+#sidebar-header {
+  padding: 0.5em 0.75em;
+  font-size: 0.75em;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--md-muted);
+  border-bottom: 1px solid var(--md-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#doc-list {
+  flex: 1;
+  overflow-y: auto;
+  list-style: none;
+  margin: 0;
+  padding: 0.25em 0;
+}
+
+#doc-list li {
+  display: flex;
+  align-items: center;
+}
+
+#doc-list a {
+  display: block;
+  flex: 1;
+  padding: 0.35em 0.75em;
+  font-size: 0.85em;
+  color: var(--md-text);
+  text-decoration: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-radius: 4px;
+  margin: 1px 4px;
+}
+
+#doc-list a:hover    { background: var(--md-border); }
+#doc-list a.active   { background: var(--md-link); color: white; }
+
+/* ── Content area ────────────────────────────────────────────────────────────── */
+#content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+/* ── Diff panel — fullscreen overlay ─────────────────────────────────────────── */
+#diff-panel {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  flex-direction: column;
+  background: var(--md-bg, #fff);
+}
+
+#diff-panel.visible {
+  display: flex;
+}
+
+#diff-panel-header {
+  display: flex;
+  align-items: center;
+  padding: 0.4em 0.75em;
+  font-size: 0.85em;
+  font-weight: 600;
+  background: var(--md-heading, #1a1a2e);
+  color: #fff;
+  border-bottom: 1px solid var(--md-border);
+  gap: 0.75em;
+  flex-shrink: 0;
+}
+
+#diff-panel-header label {
+  color: rgba(255,255,255,0.85);
+  font-weight: normal;
+}
+
+#diff-panel-header input[type="radio"] {
+  accent-color: white;
+}
+
+#diff-panel-header .close-btn {
+  margin-left: auto;
+  background: none;
+  border: 1px solid rgba(255,255,255,0.3);
+  border-radius: 4px;
+  cursor: pointer;
+  color: white;
+  font-size: 0.9em;
+  padding: 2px 8px;
+}
+
+#diff-panel-header .close-btn:hover {
+  background: rgba(255,255,255,0.15);
+}
+
+/* ── Loading / toast states ──────────────────────────────────────────────────── */
+.toast {
+  position: fixed;
+  bottom: 1.5em;
+  right: 1.5em;
+  padding: 0.6em 1em;
+  border-radius: 6px;
+  font-size: 0.85em;
+  background: var(--md-heading, #1a1a2e);
+  color: #fff;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+  z-index: 1000;
+  animation: fadeIn 0.15s ease;
+}
+
+.toast.success { background: #1a7f37; }
+.toast.error   { background: #cf222e; }
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
