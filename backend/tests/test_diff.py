@@ -188,3 +188,70 @@ def test_rendered_diff_empty_new(config):
     result = rendered_diff_sync("# Old\n\nContent.\n", "", "doc.md", "main", "branch", config)
     kinds = [b.kind for b in result.blocks]
     assert any(k in kinds for k in ("removed", "changed"))
+
+
+# ── Mermaid diagram diff ──────────────────────────────────────────────────────
+
+def test_mermaid_block_changed(config):
+    """Changed mermaid blocks get kind='mermaid' with raw old/new html and annotated diff."""
+    old = "# Title\n\n```mermaid\ngraph TD\n    A-->B\n```\n"
+    new = "# Title\n\n```mermaid\ngraph TD\n    A-->B\n    A-->C\n```\n"
+    result = rendered_diff_sync(old, new, "doc.md", "main", "branch", config)
+    mermaid_blocks = [b for b in result.blocks if b.kind == "mermaid"]
+    assert len(mermaid_blocks) == 1
+    block = mermaid_blocks[0]
+    # Both old and new HTML should contain md-mermaid elements (not wrapped in diff divs)
+    assert "md-mermaid" in block.old_html
+    assert "md-mermaid" in block.new_html
+    assert "md-diff-block" not in block.old_html
+    assert "md-diff-block" not in block.new_html
+    # diff_html contains the annotated diagram (structural diff)
+    assert block.diff_html is not None
+    assert "md-mermaid" in block.diff_html
+    assert "style C" in block.diff_html  # new node C is highlighted
+
+
+def test_mermaid_block_added(config):
+    """A newly added mermaid block gets kind='mermaid' with only new_html."""
+    old = "# Title\n\nJust text.\n"
+    new = "# Title\n\nJust text.\n\n```mermaid\ngraph LR\n    X-->Y\n```\n"
+    result = rendered_diff_sync(old, new, "doc.md", "main", "branch", config)
+    mermaid_blocks = [b for b in result.blocks if b.kind == "mermaid"]
+    assert len(mermaid_blocks) == 1
+    block = mermaid_blocks[0]
+    assert block.new_html is not None
+    assert "md-mermaid" in block.new_html
+    assert block.old_html is None
+
+
+def test_mermaid_block_removed(config):
+    """A removed mermaid block gets kind='mermaid' with only old_html."""
+    old = "# Title\n\n```mermaid\nsequenceDiagram\n    A->>B: Hello\n```\n"
+    new = "# Title\n"
+    result = rendered_diff_sync(old, new, "doc.md", "main", "branch", config)
+    mermaid_blocks = [b for b in result.blocks if b.kind == "mermaid"]
+    assert len(mermaid_blocks) == 1
+    block = mermaid_blocks[0]
+    assert block.old_html is not None
+    assert "md-mermaid" in block.old_html
+    assert block.new_html is None
+
+
+def test_mermaid_block_unchanged(config):
+    """Unchanged mermaid blocks still get kind='unchanged'."""
+    content = "# Title\n\n```mermaid\ngraph TD\n    A-->B\n```\n"
+    result = rendered_diff_sync(content, content, "doc.md", "main", "branch", config)
+    assert all(b.kind == "unchanged" for b in result.blocks)
+    mermaid_blocks = [b for b in result.blocks if b.kind == "mermaid"]
+    assert len(mermaid_blocks) == 0
+
+
+def test_is_mermaid_block():
+    """The _is_mermaid_block helper correctly identifies mermaid elements."""
+    from backend.services.diff import _is_mermaid_block
+
+    assert _is_mermaid_block("<md-mermaid>graph TD; A-->B</md-mermaid>")
+    assert _is_mermaid_block("  <md-mermaid>content</md-mermaid>  ")
+    assert not _is_mermaid_block("<p>Not mermaid</p>")
+    assert not _is_mermaid_block("<pre><code>md-mermaid</code></pre>")
+    assert not _is_mermaid_block("")

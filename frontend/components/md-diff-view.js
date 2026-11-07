@@ -237,6 +237,144 @@ const STYLES = /* css */ `
 
   .stats .added-count  { color: #1a7f37; font-weight: 600; }
   .stats .removed-count { color: #cf222e; font-weight: 600; }
+
+  /* ── Mermaid diagram diff ── */
+  .diff-row.mermaid {
+    background: var(--color-block);
+    border-bottom: 1px solid var(--color-border);
+    padding: 0;
+    display: block;
+  }
+
+  .side-by-side .diff-row.mermaid {
+    grid-template-columns: 1fr;
+    display: block;
+  }
+
+  .mermaid-diff-container {
+    width: 100%;
+  }
+
+  .mermaid-diff-header {
+    display: flex;
+    align-items: center;
+    gap: 0.5em;
+    padding: 0.4em 0.75em;
+    font-size: 0.8em;
+    font-weight: 600;
+    color: #9a6700;
+    background: rgba(255, 200, 0, 0.08);
+    border-bottom: 1px solid var(--color-border);
+  }
+
+  .mermaid-diff-icon {
+    font-size: 0.9em;
+  }
+
+  .mermaid-diff-panes {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0;
+  }
+
+  .mermaid-diff-pane {
+    padding: 0.5em;
+    min-height: 80px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .mermaid-diff-old {
+    border-right: 1px solid var(--color-border);
+    background: rgba(220, 50, 50, 0.04);
+  }
+
+  .mermaid-diff-new {
+    background: rgba(0, 200, 80, 0.04);
+  }
+
+  .mermaid-diff-empty {
+    background: var(--md-code-bg, #f6f8fa);
+    opacity: 0.6;
+  }
+
+  .mermaid-diff-label {
+    font-size: 0.7em;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    padding: 0.2em 0.5em;
+    margin-bottom: 0.4em;
+    color: var(--md-muted, #57606a);
+  }
+
+  .mermaid-diff-old .mermaid-diff-label { color: #cf222e; }
+  .mermaid-diff-new .mermaid-diff-label { color: #1a7f37; }
+  .mermaid-diff-empty .mermaid-diff-label {
+    color: var(--md-muted, #57606a);
+    font-style: italic;
+    text-transform: none;
+    letter-spacing: normal;
+  }
+
+  .mermaid-diff-content {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+  }
+
+  .mermaid-diff-content md-mermaid {
+    margin: 0;
+    border: none;
+    background: transparent;
+    width: 100%;
+  }
+
+  /* Annotated (highlighted) diagram view */
+  .mermaid-diff-annotated {
+    padding: 1em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: auto;
+  }
+
+  .mermaid-diff-annotated md-mermaid {
+    margin: 0;
+    border: none;
+    background: transparent;
+    width: 100%;
+    max-width: 100%;
+  }
+
+  /* Toggle buttons in mermaid header */
+  .mermaid-toggle-group {
+    display: flex;
+    gap: 4px;
+    margin-left: auto;
+  }
+
+  .mermaid-toggle {
+    padding: 2px 8px;
+    font-size: 0.85em;
+    border: 1px solid var(--color-border);
+    border-radius: 4px;
+    background: var(--md-bg, #fff);
+    cursor: pointer;
+    color: var(--md-text, #24292f);
+  }
+
+  .mermaid-toggle.active {
+    background: #9a6700;
+    color: white;
+    border-color: transparent;
+  }
+
+  .mermaid-toggle:hover:not(.active) {
+    background: var(--md-code-bg, #f6f8fa);
+  }
 `;
 
 const GUTTER_SYMBOLS = {
@@ -244,6 +382,7 @@ const GUTTER_SYMBOLS = {
   added:     "+",
   removed:   "−",
   changed:   "~",
+  mermaid:   "◆",
 };
 
 class MdDiffView extends HTMLElement {
@@ -349,7 +488,9 @@ class MdDiffView extends HTMLElement {
     const row = document.createElement("div");
     row.className = `diff-row ${block.kind}`;
 
-    if (this._mode === "side-by-side") {
+    if (block.kind === "mermaid") {
+      this._appendMermaidBlock(row, block);
+    } else if (this._mode === "side-by-side") {
       this._appendCell(row, block, "left");
       this._appendCell(row, block, "right");
     } else {
@@ -413,6 +554,115 @@ class MdDiffView extends HTMLElement {
 
     row.appendChild(gutter);
     row.appendChild(cell);
+  }
+
+  /**
+   * Render a mermaid diagram diff block.
+   * If an annotated (structural diff) diagram is available, show it as the
+   * primary view with a toggle to switch to side-by-side. Otherwise, fall
+   * back to side-by-side only.
+   */
+  _appendMermaidBlock(row, block) {
+    row.classList.add("mermaid-diff");
+
+    const container = document.createElement("div");
+    container.className = "mermaid-diff-container";
+
+    const changeType = block.old_html && block.new_html ? "changed" : block.old_html ? "removed" : "added";
+    const hasAnnotated = !!block.diff_html;
+
+    // Header with toggle
+    const header = document.createElement("div");
+    header.className = "mermaid-diff-header";
+
+    const title = document.createElement("span");
+    title.innerHTML = `<span class="mermaid-diff-icon">◆</span> Diagram ${changeType}`;
+    header.appendChild(title);
+
+    // Toggle buttons (only if we have both views)
+    if (hasAnnotated && block.old_html && block.new_html) {
+      const toggleGroup = document.createElement("div");
+      toggleGroup.className = "mermaid-toggle-group";
+
+      const annotatedBtn = document.createElement("button");
+      annotatedBtn.textContent = "Highlighted";
+      annotatedBtn.className = "mermaid-toggle active";
+      annotatedBtn.addEventListener("click", () => {
+        annotatedView.style.display = "";
+        sideBySideView.style.display = "none";
+        annotatedBtn.classList.add("active");
+        sideBySideBtn.classList.remove("active");
+      });
+
+      const sideBySideBtn = document.createElement("button");
+      sideBySideBtn.textContent = "Side by side";
+      sideBySideBtn.className = "mermaid-toggle";
+      sideBySideBtn.addEventListener("click", () => {
+        annotatedView.style.display = "none";
+        sideBySideView.style.display = "";
+        sideBySideBtn.classList.add("active");
+        annotatedBtn.classList.remove("active");
+      });
+
+      toggleGroup.appendChild(annotatedBtn);
+      toggleGroup.appendChild(sideBySideBtn);
+      header.appendChild(toggleGroup);
+    }
+
+    container.appendChild(header);
+
+    // Annotated view (primary) — single diagram with highlighted nodes/edges
+    let annotatedView = null;
+    if (hasAnnotated) {
+      annotatedView = document.createElement("div");
+      annotatedView.className = "mermaid-diff-annotated";
+      annotatedView.innerHTML = block.diff_html;
+      container.appendChild(annotatedView);
+    }
+
+    // Side-by-side view (secondary or fallback)
+    let sideBySideView = document.createElement("div");
+    sideBySideView.className = "mermaid-diff-panes";
+    if (hasAnnotated) {
+      sideBySideView.style.display = "none";
+    }
+
+    // Old (left) pane
+    const leftPane = document.createElement("div");
+    leftPane.className = `mermaid-diff-pane mermaid-diff-old${!block.old_html ? " mermaid-diff-empty" : ""}`;
+
+    const leftLabel = document.createElement("div");
+    leftLabel.className = "mermaid-diff-label";
+    leftLabel.textContent = block.old_html ? "Before" : "(not present)";
+    leftPane.appendChild(leftLabel);
+
+    const leftContent = document.createElement("div");
+    leftContent.className = "mermaid-diff-content";
+    if (block.old_html) {
+      leftContent.innerHTML = block.old_html;
+    }
+    leftPane.appendChild(leftContent);
+
+    // New (right) pane
+    const rightPane = document.createElement("div");
+    rightPane.className = `mermaid-diff-pane mermaid-diff-new${!block.new_html ? " mermaid-diff-empty" : ""}`;
+
+    const rightLabel = document.createElement("div");
+    rightLabel.className = "mermaid-diff-label";
+    rightLabel.textContent = block.new_html ? "After" : "(removed)";
+    rightPane.appendChild(rightLabel);
+
+    const rightContent = document.createElement("div");
+    rightContent.className = "mermaid-diff-content";
+    if (block.new_html) {
+      rightContent.innerHTML = block.new_html;
+    }
+    rightPane.appendChild(rightContent);
+
+    sideBySideView.appendChild(leftPane);
+    sideBySideView.appendChild(rightPane);
+    container.appendChild(sideBySideView);
+    row.appendChild(container);
   }
 }
 

@@ -34,6 +34,7 @@ from backend.models.schema import (
     SourceDiff,
 )
 from backend.services import pandoc as pandoc_svc
+from backend.services.mermaid_diff import mermaid_structural_diff
 
 
 # ── Source (text) diff ────────────────────────────────────────────────────────
@@ -638,6 +639,22 @@ def word_diff_html(
 
 # ── Rendered diff ─────────────────────────────────────────────────────────────
 
+def _is_mermaid_block(block_html: str) -> bool:
+    """Check if an HTML block is a mermaid diagram element."""
+    stripped = block_html.strip()
+    return stripped.startswith("<md-mermaid") and stripped.endswith("</md-mermaid>")
+
+
+def _extract_mermaid_source(block_html: str) -> str:
+    """Extract the raw mermaid source text from an <md-mermaid> element."""
+    stripped = block_html.strip()
+    # Remove opening tag (may have attributes)
+    start = stripped.index('>') + 1
+    # Remove closing tag
+    end = stripped.rindex('</md-mermaid>')
+    return html.unescape(stripped[start:end]).strip()
+
+
 def rendered_diff_sync(
     old_content: str,
     new_content: str,
@@ -693,17 +710,31 @@ def rendered_diff_sync(
 
         elif tag == "delete":
             for idx in range(i2 - i1):
-                result_blocks.append(RenderedDiffBlock(
-                    kind="removed",
-                    old_html=_wrap_block(old_blocks[i1 + idx], "removed", diff_cfg),
-                ))
+                block = old_blocks[i1 + idx]
+                if _is_mermaid_block(block):
+                    result_blocks.append(RenderedDiffBlock(
+                        kind="mermaid",
+                        old_html=block,
+                    ))
+                else:
+                    result_blocks.append(RenderedDiffBlock(
+                        kind="removed",
+                        old_html=_wrap_block(block, "removed", diff_cfg),
+                    ))
 
         elif tag == "insert":
             for idx in range(j2 - j1):
-                result_blocks.append(RenderedDiffBlock(
-                    kind="added",
-                    new_html=_wrap_block(new_blocks[j1 + idx], "added", diff_cfg),
-                ))
+                block = new_blocks[j1 + idx]
+                if _is_mermaid_block(block):
+                    result_blocks.append(RenderedDiffBlock(
+                        kind="mermaid",
+                        new_html=block,
+                    ))
+                else:
+                    result_blocks.append(RenderedDiffBlock(
+                        kind="added",
+                        new_html=_wrap_block(block, "added", diff_cfg),
+                    ))
 
         elif tag == "replace":
             # Pair up old/new blocks; extras treated as pure add/remove
@@ -723,6 +754,24 @@ def rendered_diff_sync(
                     result_blocks.append(RenderedDiffBlock(
                         kind="removed",
                         old_html=_wrap_block(old_b, "removed", diff_cfg),
+                    ))
+                elif _is_mermaid_block(old_b) or _is_mermaid_block(new_b):
+                    # Mermaid diagrams: attempt structural diff to produce
+                    # an annotated diagram with highlighted changes
+                    diff_html = None
+                    if _is_mermaid_block(old_b) and _is_mermaid_block(new_b):
+                        old_src = _extract_mermaid_source(old_b)
+                        new_src = _extract_mermaid_source(new_b)
+                        annotated = mermaid_structural_diff(old_src, new_src)
+                        if annotated:
+                            diff_html = (
+                                f"<md-mermaid>{html.escape(annotated)}</md-mermaid>"
+                            )
+                    result_blocks.append(RenderedDiffBlock(
+                        kind="mermaid",
+                        old_html=old_b,
+                        new_html=new_b,
+                        diff_html=diff_html,
                     ))
                 else:
                     # Changed block — apply word diff
